@@ -162,6 +162,7 @@ func parseJob(result *structs.Job, list *ast.ObjectList) error {
 		if err := parsePeriodic(&result.Periodic, o); err != nil {
 			return multierror.Prefix(err, "periodic ->")
 		}
+		fmt.Printf("parsePeriodic ed, result.Periodic= %v\n", result.Periodic)
 	}
 
 	// Parse out meta fields. These are in HCL as a list so we need
@@ -962,6 +963,7 @@ func parsePeriodic(result **structs.PeriodicConfig, list *ast.ObjectList) error 
 		"enabled",
 		"cron",
 		"prohibit_overlap",
+		"day_cycs",
 	}
 	if err := checkHCLKeys(o.Val, valid); err != nil {
 		return err
@@ -982,6 +984,14 @@ func parsePeriodic(result **structs.PeriodicConfig, list *ast.ObjectList) error 
 	if cron, ok := m["cron"]; ok {
 		m["SpecType"] = structs.PeriodicSpecCron
 		m["Spec"] = cron
+	}
+
+	// Lius : add, exec in temp-client for job submit
+	fmt.Printf("m[day_cycs]=%v\n", m["day_cycs"])
+	if dayCycs, ok := m["day_cycs"]; ok {
+		fmt.Printf("set PeriodicSpecDayCyc\n")
+		m["SpecType"] = structs.PeriodicSpecDayCyc
+		m["DayCycs"] = dayCycs
 	}
 
 	// Build the constraint
@@ -1014,7 +1024,7 @@ func checkHCLKeys(node ast.Node, valid []string) error {
 		key := item.Keys[0].Token.Value().(string)
 		if _, ok := validMap[key]; !ok {
 			result = multierror.Append(result, fmt.Errorf(
-				"invalid key: %s", key))
+				"--invalid key: %s", key))
 		}
 	}
 

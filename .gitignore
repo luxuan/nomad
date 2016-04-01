@@ -53,3 +53,6 @@ TODO.md
 
 .terraform
 *.tfstate*
+
+
+nohup.out

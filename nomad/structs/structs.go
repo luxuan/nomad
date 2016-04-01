@@ -892,6 +892,7 @@ type Job struct {
 
 	// TaskGroups are the collections of task groups that this job needs
 	// to run. Each task group is an atomic unit of scheduling and placement.
+	// Lius: Task groups are a set of tasks that must be co-located on a machine.
 	TaskGroups []*TaskGroup
 
 	// Update is used to control the update strategy
@@ -1084,10 +1085,80 @@ const (
 	// PeriodicSpecCron is used for a cron spec.
 	PeriodicSpecCron = "cron"
 
+	// It is a sorted
+	PeriodicSpecDayCyc = "daycyc"
+
 	// PeriodicSpecTest is only used by unit tests. It is a sorted, comma
 	// seperated list of unix timestamps at which to launch.
 	PeriodicSpecTest = "_internal_test"
 )
+
+type DayCycConfig struct {
+	Time     string
+	Instance int
+}
+
+func (dc *DayCycConfig) SplitTime() (int, int, error) {
+	splits := strings.Split(dc.Time, ":")
+	if len(splits) != 2 {
+		return 0, 0, fmt.Errorf("Split hour and minute failed")
+	}
+	hour, err := strconv.Atoi(splits[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("Splitted hour should be integer")
+	}
+	min, err := strconv.Atoi(splits[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("Splitted minute should be integer")
+	}
+	return hour, min, nil
+}
+
+type DayCycSpec []*DayCycConfig
+
+func (d DayCycSpec) Validate() error {
+	if d == nil {
+		return fmt.Errorf("Periodic.DayCycs shouldn't be empty")
+	}
+	err := fmt.Errorf("")
+	for i, cyc := range d {
+		pattern := `^([01]?[0-9]|2[0-3]):[0-5][0-9]$`
+		isMatch, terr := regexp.Match(pattern, []byte(cyc.Time))
+		if terr != nil || !isMatch {
+			err = fmt.Errorf("%v  +++  \nPeriodic.DayCycs[%d].Time should like '21:40'\n", err, i)
+		}
+		if cyc.Instance < 0 {
+			err = fmt.Errorf("%v  +++  \nPeriodic.DayCycs[%d].Instance should be non-negative\n", err, i)
+		}
+	}
+	if err.Error() != "" {
+		return err
+	}
+	return nil
+}
+
+func (d DayCycSpec) Next(fromTime time.Time) (*DayCycConfig, bool) {
+	if d == nil {
+		fmt.Printf("Periodic.DayCycs shouldn't be empty in Next()\n")
+		return nil, false
+	}
+
+	fromHour, fromMin, fromSec := fromTime.Clock()
+	fromDayOfSecond := 3600*fromHour + 60*fromMin + fromSec
+	for i, cyc := range d {
+		hour, min, err := cyc.SplitTime()
+		if err != nil {
+			fmt.Printf("SplitTime err: %v\n", err)
+			return nil, false
+		}
+		dayOfSecond := 3600*hour + 60*min
+		// Lius DEBUGGED: tired coding, logic conflixed
+		if fromDayOfSecond < dayOfSecond { // CARE: needn't consider equals time
+			return d[i], false // false -> today(not tomorrow)
+		}
+	}
+	return d[0], true // true -> is tomorrow
+}
 
 // Periodic defines the interval a job should be run at.
 type PeriodicConfig struct {
@@ -1100,6 +1171,8 @@ type PeriodicConfig struct {
 
 	// SpecType defines the format of the spec.
 	SpecType string
+
+	DayCycs DayCycSpec
 
 	// ProhibitOverlap enforces that spawned jobs do not run in parallel.
 	ProhibitOverlap bool `mapstructure:"prohibit_overlap"`
@@ -1129,6 +1202,10 @@ func (p *PeriodicConfig) Validate() error {
 		if _, err := cronexpr.Parse(p.Spec); err != nil {
 			return fmt.Errorf("Invalid cron spec %q: %v", p.Spec, err)
 		}
+	case PeriodicSpecDayCyc:
+		if err := p.DayCycs.Validate(); err != nil {
+			return err
+		}
 	case PeriodicSpecTest:
 		// No-op
 	default:
@@ -1142,16 +1219,31 @@ func (p *PeriodicConfig) Validate() error {
 // passed time. If no matching instance exists, the zero value of time.Time is
 // returned. The `time.Location` of the returned value matches that of the
 // passed time.
-func (p *PeriodicConfig) Next(fromTime time.Time) time.Time {
+func (p *PeriodicConfig) Next(fromTime time.Time) (time.Time, int) {
 	switch p.SpecType {
 	case PeriodicSpecCron:
 		if e, err := cronexpr.Parse(p.Spec); err == nil {
-			return e.Next(fromTime)
+			return e.Next(fromTime), -1
+		}
+	case PeriodicSpecDayCyc:
+		fmt.Println("case PeriodicSpecDayCyc")
+		if cyc, isTomorrow := p.DayCycs.Next(fromTime); cyc != nil {
+			fmt.Println("cyc!=nil")
+			var month time.Month
+			var year, day int
+			if isTomorrow {
+				year, month, day = fromTime.Add(24 * time.Hour).Date()
+			} else {
+				year, month, day = fromTime.Date()
+			}
+			hour, min, _ := cyc.SplitTime()
+			fmt.Println("next:", year, month, day, hour, min)
+			return time.Date(year, month, day, hour, min, 0, 0, time.Local), cyc.Instance
 		}
 	case PeriodicSpecTest:
 		split := strings.Split(p.Spec, ",")
 		if len(split) == 1 && split[0] == "" {
-			return time.Time{}
+			return time.Time{}, 0
 		}
 
 		// Parse the times
@@ -1159,7 +1251,7 @@ func (p *PeriodicConfig) Next(fromTime time.Time) time.Time {
 		for i, s := range split {
 			unix, err := strconv.Atoi(s)
 			if err != nil {
-				return time.Time{}
+				return time.Time{}, 0
 			}
 
 			times[i] = time.Unix(int64(unix), 0)
@@ -1168,12 +1260,12 @@ func (p *PeriodicConfig) Next(fromTime time.Time) time.Time {
 		// Find the next match
 		for _, next := range times {
 			if fromTime.Before(next) {
-				return next
+				return next, -1
 			}
 		}
 	}
 
-	return time.Time{}
+	return time.Time{}, 0
 }
 
 const (

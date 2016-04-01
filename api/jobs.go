@@ -141,11 +141,20 @@ type UpdateStrategy struct {
 	MaxParallel int
 }
 
+type DayCycConfig struct {
+	Time     string
+	Instance int
+}
+
+//type DayCycSpec []*DayCycConfig
+
 // PeriodicConfig is for serializing periodic config for a job.
 type PeriodicConfig struct {
-	Enabled         bool
-	Spec            string
-	SpecType        string
+	Enabled  bool
+	Spec     string
+	SpecType string
+	//DayCycs         DayCycSpec
+	DayCycs         []*DayCycConfig
 	ProhibitOverlap bool
 }
 

@@ -12,6 +12,8 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
+var randomNum int
+
 // PeriodicDispatch is used to track and launch periodic jobs. It maintains the
 // set of periodic jobs and creates derived jobs and evaluations per
 // instantiation which is determined by the periodic spec.
@@ -203,14 +205,15 @@ func (p *PeriodicDispatch) Add(job *structs.Job) error {
 
 	// Add or update the job.
 	p.tracked[job.ID] = job
-	next := job.Periodic.Next(time.Now())
-	if tracked {
-		if err := p.heap.Update(job, next); err != nil {
+	next, nins := job.Periodic.Next(time.Now())
+	fmt.Printf("Add invoke Periodic.Next, nins=%d\n", nins)
+	if tracked { // Lius: exist job
+		if err := p.heap.Update(job, next, nins); err != nil {
 			return fmt.Errorf("failed to update job %v launch time: %v", job.ID, err)
 		}
 		p.logger.Printf("[DEBUG] nomad.periodic: updated periodic job %q", job.ID)
 	} else {
-		if err := p.heap.Push(job, next); err != nil {
+		if err := p.heap.Push(job, next, nins); err != nil {
 			return fmt.Errorf("failed to add job %v: %v", job.ID, err)
 		}
 		p.logger.Printf("[DEBUG] nomad.periodic: registered periodic job %q", job.ID)
@@ -281,7 +284,7 @@ func (p *PeriodicDispatch) ForceRun(jobID string) (*structs.Evaluation, error) {
 	}
 
 	p.l.Unlock()
-	return p.createEval(job, time.Now())
+	return p.createEval(job, time.Now(), -1)
 }
 
 // shouldRun returns whether the long lived run function should run.
@@ -297,7 +300,7 @@ func (p *PeriodicDispatch) run() {
 	defer close(p.waitCh)
 	var launchCh <-chan time.Time
 	for p.shouldRun() {
-		job, launch := p.nextLaunch()
+		job, launch, nins := p.nextLaunch()
 		if launch.IsZero() {
 			launchCh = nil
 		} else {
@@ -311,25 +314,28 @@ func (p *PeriodicDispatch) run() {
 			return
 		case <-p.updateCh:
 			continue
-		case <-launchCh:
-			p.dispatch(job, launch)
+		case <-launchCh: //Lius: run immediately when launchDur < 0
+			p.dispatch(job, launch, nins)
 		}
 	}
 }
 
 // dispatch creates an evaluation for the job and updates its next launchtime
 // based on the passed launch time.
-func (p *PeriodicDispatch) dispatch(job *structs.Job, launchTime time.Time) {
+func (p *PeriodicDispatch) dispatch(job *structs.Job, launchTime time.Time, nins int) {
 	p.l.Lock()
 
-	nextLaunch := job.Periodic.Next(launchTime)
-	if err := p.heap.Update(job, nextLaunch); err != nil {
+	fmt.Printf("dispatch Job: %v\n", job)
+	nextLaunch, nextNins := job.Periodic.Next(launchTime)
+	fmt.Printf("dispatch invoke Periodic.Next, nins=%d\n", nins)
+	if err := p.heap.Update(job, nextLaunch, nextNins); err != nil {
 		p.logger.Printf("[ERR] nomad.periodic: failed to update next launch of periodic job %q: %v", job.ID, err)
 	}
 
 	// If the job prohibits overlapping and there are running children, we skip
 	// the launch.
 	if job.Periodic.ProhibitOverlap {
+		fmt.Println("job.Periodic.ProhibitOverlap: %v", job)
 		running, err := p.dispatcher.RunningChildren(job)
 		if err != nil {
 			msg := fmt.Sprintf("[ERR] nomad.periodic: failed to determine if"+
@@ -350,37 +356,47 @@ func (p *PeriodicDispatch) dispatch(job *structs.Job, launchTime time.Time) {
 
 	p.logger.Printf("[DEBUG] nomad.periodic: launching job %v at %v", job.ID, launchTime)
 	p.l.Unlock()
-	p.createEval(job, launchTime)
+	p.createEval(job, launchTime, nins)
 }
 
 // nextLaunch returns the next job to launch and when it should be launched. If
 // the next job can't be determined, an error is returned. If the dispatcher is
 // stopped, a nil job will be returned.
-func (p *PeriodicDispatch) nextLaunch() (*structs.Job, time.Time) {
+func (p *PeriodicDispatch) nextLaunch() (*structs.Job, time.Time, int) {
 	// If there is nothing wait for an update.
 	p.l.RLock()
 	defer p.l.RUnlock()
 	if p.heap.Length() == 0 {
-		return nil, time.Time{}
+		return nil, time.Time{}, 0
 	}
 
 	nextJob := p.heap.Peek()
 	if nextJob == nil {
-		return nil, time.Time{}
+		return nil, time.Time{}, 0
 	}
 
-	return nextJob.job, nextJob.next
+	return nextJob.job, nextJob.next, nextJob.nins
 }
 
 // createEval instantiates a job based on the passed periodic job and submits an
 // evaluation for it. This should not be called with the lock held.
-func (p *PeriodicDispatch) createEval(periodicJob *structs.Job, time time.Time) (*structs.Evaluation, error) {
-	derived, err := p.deriveJob(periodicJob, time)
-	if err != nil {
-		return nil, err
+func (p *PeriodicDispatch) createEval(periodicJob *structs.Job, time time.Time, nins int) (*structs.Evaluation, error) {
+	/*
+		derived, err := p.deriveJob(periodicJob, time)
+		if err != nil {
+			return nil, err
+		}
+	*/
+
+	// Lius: test for change number of instance
+	//randomNum = (randomNum + 1) % 2
+	if nins >= 0 {
+		fmt.Printf("periodicJobID:%s, nins:%d\n", periodicJob.ID, nins)
+		periodicJob.TaskGroups[0].Count = nins
 	}
 
-	eval, err := p.dispatcher.DispatchJob(derived)
+	//eval, err := p.dispatcher.DispatchJob(derived)
+	eval, err := p.dispatcher.DispatchJob(periodicJob)
 	if err != nil {
 		p.logger.Printf("[ERR] nomad.periodic: failed to dispatch job %q: %v", periodicJob.ID, err)
 		return nil, err
@@ -458,6 +474,7 @@ type periodicHeap struct {
 type periodicJob struct {
 	job   *structs.Job
 	next  time.Time
+	nins  int
 	index int
 }
 
@@ -468,12 +485,12 @@ func NewPeriodicHeap() *periodicHeap {
 	}
 }
 
-func (p *periodicHeap) Push(job *structs.Job, next time.Time) error {
+func (p *periodicHeap) Push(job *structs.Job, next time.Time, nins int) error {
 	if _, ok := p.index[job.ID]; ok {
 		return fmt.Errorf("job %v already exists", job.ID)
 	}
 
-	pJob := &periodicJob{job, next, 0}
+	pJob := &periodicJob{job, next, nins, 0}
 	p.index[job.ID] = pJob
 	heap.Push(&p.heap, pJob)
 	return nil
@@ -502,11 +519,12 @@ func (p *periodicHeap) Contains(job *structs.Job) bool {
 	return ok
 }
 
-func (p *periodicHeap) Update(job *structs.Job, next time.Time) error {
+func (p *periodicHeap) Update(job *structs.Job, next time.Time, nins int) error {
 	if pJob, ok := p.index[job.ID]; ok {
 		// Need to update the job as well because its spec can change.
 		pJob.job = job
 		pJob.next = next
+		pJob.nins = nins
 		heap.Fix(&p.heap, pJob.index)
 		return nil
 	}

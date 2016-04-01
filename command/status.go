@@ -114,7 +114,7 @@ func (c *StatusCommand) Run(args []string) int {
 		c.Ui.Error(fmt.Sprintf("No job(s) with prefix or id %q found", jobID))
 		return 1
 	}
-	if len(jobs) > 1 && strings.TrimSpace(jobID) != jobs[0].ID {
+	if len(jobs) > 1 {
 		out := make([]string, len(jobs)+1)
 		out[0] = "ID|Type|Priority|Status"
 		for i, job := range jobs {
@@ -154,8 +154,8 @@ func (c *StatusCommand) Run(args []string) int {
 	}
 
 	if periodic {
-		basic = append(basic, fmt.Sprintf("Next Periodic Launch|%v",
-			sJob.Periodic.Next(time.Now())))
+		t, _ := sJob.Periodic.Next(time.Now())
+		basic = append(basic, fmt.Sprintf("Next Periodic Launch|%v", t))
 	}
 
 	c.Ui.Output(formatKV(basic))
