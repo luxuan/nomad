@@ -3,10 +3,12 @@ log_level = "DEBUG"
 
 # Setup data dir
 data_dir = "/tmp/client1"
+name = "aliyun-17.23"
 
 # Enable the client
 client {
     enabled = true
+    node_class = "dip"
 
     # For demo assume we are talking to server1. For production,
     # this should be like "nomad.service.consul:4647" and a system

@@ -103,6 +103,7 @@ func NewGenericStack(batch bool, ctx Context) *GenericStack {
 	s.jobAntiAff = NewJobAntiAffinityIterator(ctx, s.binPack, penalty, "")
 
 	// Apply a limit function. This is to avoid scanning *every* possible node.
+	// Lius: partrial max
 	s.limit = NewLimitIterator(ctx, s.jobAntiAff, 2)
 
 	// Select the node with the maximum score for placement

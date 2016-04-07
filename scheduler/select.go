@@ -47,11 +47,12 @@ func (iter *LimitIterator) Reset() {
 // possible inputs and only returns the highest ranking result.
 type MaxScoreIterator struct {
 	ctx    Context
-	source RankIterator
+	source RankIterator // Lius: ? default for LimitIterator
 	max    *RankedNode
 }
 
 // MaxScoreIterator returns a MaxScoreIterator over the given source
+// Lius: decorator interface for RankIterator
 func NewMaxScoreIterator(ctx Context, source RankIterator) *MaxScoreIterator {
 	iter := &MaxScoreIterator{
 		ctx:    ctx,

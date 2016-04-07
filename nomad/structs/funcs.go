@@ -102,6 +102,7 @@ func AllocsFit(node *Node, allocs []*Allocation, netIdx *NetworkIndex) (bool, st
 // ScoreFit is used to score the fit based on the Google work published here:
 // http://www.columbia.edu/~cs2035/courses/ieor4405.S13/datacenter_scheduling.ppt
 // This is equivalent to their BestFit v3
+// Lius: more used -> hihger score
 func ScoreFit(node *Node, util *Resources) float64 {
 	// Determine the node availability
 	nodeCpu := float64(node.Resources.CPU)

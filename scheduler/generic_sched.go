@@ -263,9 +263,12 @@ func (s *GenericScheduler) computeJobAllocs() error {
 	}
 
 	// Filter out the allocations in a terminal state
+	// Lius: DesiredStatus in (AllocDesiredStatusStop, AllocDesiredStatusEvict, AllocDesiredStatusFailed)
+	//       or ClientStatus == structs.AllocClientStatusFailed
 	allocs = s.filterCompleteAllocs(allocs)
 
 	// Determine the tainted nodes containing job allocs
+	// Lius: node.Status set to Drain, need migrating
 	tainted, err := taintedNodes(s.state, allocs)
 	if err != nil {
 		return fmt.Errorf("failed to get tainted nodes for job '%s': %v",
@@ -291,6 +294,7 @@ func (s *GenericScheduler) computeJobAllocs() error {
 	}
 
 	// Treat migrations as an eviction and a new placement.
+	// Lius: mark allocations for evicts and add them to the placement queue
 	s.limitReached = evictAndPlace(s.ctx, diff, diff.migrate, allocMigrating, &limit)
 
 	// Treat non in-place updates as an eviction and new placement.
@@ -302,6 +306,7 @@ func (s *GenericScheduler) computeJobAllocs() error {
 	}
 
 	// Compute the placements
+	// Lius: alloc new resource for not existing resource before
 	return s.computePlacements(diff.place)
 }
 
