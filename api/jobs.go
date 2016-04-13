@@ -168,6 +168,7 @@ type Job struct {
 	AllAtOnce         bool
 	Datacenters       []string
 	Constraints       []*Constraint
+	Affinities        []*Constraint // Lius: add
 	TaskGroups        []*TaskGroup
 	Update            *UpdateStrategy
 	Periodic          *PeriodicConfig

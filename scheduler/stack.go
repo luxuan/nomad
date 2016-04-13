@@ -1,7 +1,8 @@
 package scheduler
 
 import (
-	"math"
+	//"math"
+	"fmt"
 	"time"
 
 	"github.com/hashicorp/nomad/nomad/structs"
@@ -16,6 +17,8 @@ const (
 	// batchJobAntiAffinityPenalty is the same as the
 	// serviceJobAntiAffinityPenalty but for batch type jobs.
 	batchJobAntiAffinityPenalty = 5.0
+
+	jobAffinityReward = 10.0
 )
 
 // Stack is a chained collection of iterators. The stack is used to
@@ -41,12 +44,14 @@ type GenericStack struct {
 
 	wrappedChecks       *FeasibilityWrapper
 	jobConstraint       *ConstraintChecker
+	jobAffConstraint    *ConstraintChecker // Lius: reuse the Constraint config
 	taskGroupDrivers    *DriverChecker
 	taskGroupConstraint *ConstraintChecker
 
 	proposedAllocConstraint *ProposedAllocConstraintIterator
 	binPack                 *BinPackIterator
 	jobAntiAff              *JobAntiAffinityIterator
+	jobAffIter              *JobAffinityIterator // Lius
 	limit                   *LimitIterator
 	maxScore                *MaxScoreIterator
 }
@@ -102,9 +107,13 @@ func NewGenericStack(batch bool, ctx Context) *GenericStack {
 	}
 	s.jobAntiAff = NewJobAntiAffinityIterator(ctx, s.binPack, penalty, "")
 
+	// Lius: add
+	s.jobAffConstraint = NewConstraintChecker(ctx, nil)
+	s.jobAffIter = NewJobAffinityIterator(ctx, s.jobAntiAff, s.jobAffConstraint, jobAffinityReward)
+
 	// Apply a limit function. This is to avoid scanning *every* possible node.
 	// Lius: partrial max
-	s.limit = NewLimitIterator(ctx, s.jobAntiAff, 2)
+	s.limit = NewLimitIterator(ctx, s.jobAffIter, 2)
 
 	// Select the node with the maximum score for placement
 	s.maxScore = NewMaxScoreIterator(ctx, s.limit)
@@ -123,18 +132,26 @@ func (s *GenericStack) SetNodes(baseNodes []*structs.Node) {
 	// power of two choices. For services jobs we need to visit "enough".
 	// Using a log of the total number of nodes is a good restriction, with
 	// at least 2 as the floor
-	limit := 2
-	if n := len(baseNodes); !s.batch && n > 0 {
-		logLimit := int(math.Ceil(math.Log2(float64(n))))
-		if logLimit > limit {
-			limit = logLimit
+
+	// Lius: change limit to all nodes, because of the affinity
+	limit := len(baseNodes)
+	fmt.Printf("set limit=%d\n", limit)
+	/*
+		limit := 2
+		if n := len(baseNodes); !s.batch && n > 0 {
+			logLimit := int(math.Ceil(math.Log2(float64(n))))
+			if logLimit > limit {
+				limit = logLimit
+			}
 		}
-	}
+	*/
 	s.limit.SetLimit(limit)
 }
 
 func (s *GenericStack) SetJob(job *structs.Job) {
 	s.jobConstraint.SetConstraints(job.Constraints)
+	fmt.Printf("GenericStack.SetJob Affinities --->: %v\n", job.Affinities)
+	s.jobAffConstraint.SetConstraints(job.Affinities) // Lius: not for SystemStack
 	s.proposedAllocConstraint.SetJob(job)
 	s.binPack.SetPriority(job.Priority)
 	s.jobAntiAff.SetJob(job.ID)
@@ -167,6 +184,7 @@ func (s *GenericStack) Select(tg *structs.TaskGroup) (*RankedNode, *structs.Reso
 		}
 	}
 
+	fmt.Printf("MaxScoreRankNode: %v\n", option)
 	// Store the compute time
 	s.ctx.Metrics().AllocationTime = time.Since(start)
 	return option, tgConstr.size

@@ -1,5 +1,7 @@
 package scheduler
 
+import "fmt"
+
 // LimitIterator is a RankIterator used to limit the number of options
 // that are returned before we artifically end the stream.
 type LimitIterator struct {
@@ -34,6 +36,9 @@ func (iter *LimitIterator) Next() *RankedNode {
 	}
 
 	iter.seen += 1
+
+	fmt.Printf("LimitIterator.NextNode ID:%s, Name:%s\n", option.Node.ID, option.Node.Name)
+
 	return option
 }
 

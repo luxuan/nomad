@@ -889,6 +889,7 @@ type Job struct {
 	// Constraints can be specified at a job level and apply to
 	// all the task groups and tasks.
 	Constraints []*Constraint
+	Affinities  []*Constraint
 
 	// TaskGroups are the collections of task groups that this job needs
 	// to run. Each task group is an atomic unit of scheduling and placement.
@@ -935,6 +936,7 @@ func (j *Job) Copy() *Job {
 	*nj = *j
 	nj.Datacenters = CopySliceString(nj.Datacenters)
 	nj.Constraints = CopySliceConstraints(nj.Constraints)
+	nj.Affinities = CopySliceConstraints(nj.Affinities)
 
 	if j.TaskGroups != nil {
 		tgs := make([]*TaskGroup, len(nj.TaskGroups))
@@ -978,6 +980,12 @@ func (j *Job) Validate() error {
 	for idx, constr := range j.Constraints {
 		if err := constr.Validate(); err != nil {
 			outer := fmt.Errorf("Constraint %d validation failed: %s", idx+1, err)
+			mErr.Errors = append(mErr.Errors, outer)
+		}
+	}
+	for idx, constr := range j.Affinities {
+		if err := constr.Validate(); err != nil {
+			outer := fmt.Errorf("Affinities %d validation failed: %s", idx+1, err)
 			mErr.Errors = append(mErr.Errors, outer)
 		}
 	}
@@ -1226,9 +1234,7 @@ func (p *PeriodicConfig) Next(fromTime time.Time) (time.Time, int) {
 			return e.Next(fromTime), -1
 		}
 	case PeriodicSpecDayCyc:
-		fmt.Println("case PeriodicSpecDayCyc")
 		if cyc, isTomorrow := p.DayCycs.Next(fromTime); cyc != nil {
-			fmt.Println("cyc!=nil")
 			var month time.Month
 			var year, day int
 			if isTomorrow {
@@ -1237,7 +1243,7 @@ func (p *PeriodicConfig) Next(fromTime time.Time) (time.Time, int) {
 				year, month, day = fromTime.Date()
 			}
 			hour, min, _ := cyc.SplitTime()
-			fmt.Println("next:", year, month, day, hour, min)
+			fmt.Printf("next cron %v-%v-%v %v:%v, ins: %v\n", year, month, day, hour, min, cyc.Instance)
 			return time.Date(year, month, day, hour, min, 0, 0, time.Local), cyc.Instance
 		}
 	case PeriodicSpecTest:

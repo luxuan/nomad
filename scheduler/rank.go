@@ -74,6 +74,7 @@ func NewFeasibleRankIterator(ctx Context, source FeasibleIterator) *FeasibleRank
 }
 
 func (iter *FeasibleRankIterator) Next() *RankedNode {
+	fmt.Println("--------FeasibleRankIterator.Next-----------")
 	option := iter.source.Next()
 	if option == nil {
 		return nil
@@ -266,6 +267,7 @@ func (iter *JobAntiAffinityIterator) SetJob(jobID string) {
 }
 
 func (iter *JobAntiAffinityIterator) Next() *RankedNode {
+	fmt.Println("--------JobAntiAffinityIterator.Next-----------")
 	for {
 		option := iter.source.Next()
 		if option == nil {
@@ -300,5 +302,55 @@ func (iter *JobAntiAffinityIterator) Next() *RankedNode {
 }
 
 func (iter *JobAntiAffinityIterator) Reset() {
+	iter.source.Reset()
+}
+
+// Lius: add at 2016.04.11
+// JobAffinityIterator is used to apply an affinity to better fit node constraint.
+type JobAffinityIterator struct {
+	ctx    Context
+	source RankIterator
+	check  *ConstraintChecker
+	reward float64
+}
+
+// NewJobAffinityIterator is used to create a JobAffinityIterator that
+// applies the given penalty for co-placement with allocs from this job.
+func NewJobAffinityIterator(ctx Context, source RankIterator, check *ConstraintChecker, reward float64) *JobAffinityIterator {
+	iter := &JobAffinityIterator{
+		ctx:    ctx,
+		source: source,
+		check:  check,
+		reward: reward,
+	}
+	return iter
+}
+
+func (iter *JobAffinityIterator) Next() *RankedNode {
+	fmt.Println("--------JobAffinityIterator.Next-----------")
+	for {
+		option := iter.source.Next()
+		if option == nil {
+			return nil
+		}
+
+		meetCount := 0
+		// copied from ConstraintChecker.Feasible
+		// while constraints == nil, not reward adding
+		for _, constraint := range iter.check.constraints {
+			fmt.Printf("range constraint: %v\n", constraint)
+			if iter.check.meetsConstraint(constraint, option.Node) {
+				meetCount++
+				fmt.Printf("meetsAffinity: %d\n", meetCount)
+			}
+		}
+		option.Score += float64(meetCount) * iter.reward
+		fmt.Printf("option.Score: %f, meetCount: %d\n", option.Score, meetCount)
+
+		return option
+	}
+}
+
+func (iter *JobAffinityIterator) Reset() {
 	iter.source.Reset()
 }

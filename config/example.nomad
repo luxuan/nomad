@@ -23,8 +23,15 @@ job "example" {
 	}
 
 	constraint {
-		attribute = "${node.class}"
-		value = "hongbing"
+#attribute = "${node.class}"
+#value = "hongbing"
+#distinct_hosts = true
+	}
+
+	affinity {
+#attribute = "${node.unique.name}"
+        attribute = "${node.class}"
+        value = "hongbing"
 	}
 	# Configure the job to do rolling updates
 	update {
@@ -43,16 +50,16 @@ job "example" {
 
         // Lius: should be sorted
         day_cycs {
-            time = "16:42"
+            time = "21:21"
             instance = 1
         }
         day_cycs {
-            time = "16:43"
-            instance = 0
+            time = "21:22"
+            instance = 2
         }
         day_cycs {
-            time = "16:44"
-            instance = 2
+            time = "21:23"
+            instance = 0
         }
     }
 

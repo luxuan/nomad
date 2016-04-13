@@ -96,7 +96,9 @@ func parseJob(result *structs.Job, list *ast.ObjectList) error {
 	if err := hcl.DecodeObject(&m, obj.Val); err != nil {
 		return err
 	}
+	// Lius: ? these config should re-parse, because they are not fit the inner struct
 	delete(m, "constraint")
+	delete(m, "affinity")
 	delete(m, "meta")
 	delete(m, "update")
 	delete(m, "periodic")
@@ -133,6 +135,7 @@ func parseJob(result *structs.Job, list *ast.ObjectList) error {
 		"priority",
 		"datacenters",
 		"constraint",
+		"affinity", // Lius: add at 2016.04.11
 		"update",
 		"periodic",
 		"meta",
@@ -147,6 +150,13 @@ func parseJob(result *structs.Job, list *ast.ObjectList) error {
 	if o := listVal.Filter("constraint"); len(o.Items) > 0 {
 		if err := parseConstraints(&result.Constraints, o); err != nil {
 			return multierror.Prefix(err, "constraint ->")
+		}
+	}
+
+	// Lius: DEBUGGED  Parse affinites
+	if o := listVal.Filter("affinity"); len(o.Items) > 0 {
+		if err := parseConstraints(&result.Affinities, o); err != nil {
+			return multierror.Prefix(err, "affinity ->")
 		}
 	}
 

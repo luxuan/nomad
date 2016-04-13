@@ -84,6 +84,11 @@ func NewRandomIterator(ctx Context, nodes []*structs.Node) *StaticIterator {
 	// shuffle with the Fisher-Yates algorithm
 	shuffleNodes(nodes)
 
+	// Lius: add for debug
+	for i, node := range nodes {
+		fmt.Printf("random %d -> ID:%s, Name:%s\n", i, node.ID, node.Name)
+	}
+
 	// Create a static iterator
 	return NewStaticIterator(ctx, nodes)
 }
@@ -188,16 +193,19 @@ func (iter *ProposedAllocConstraintIterator) hasDistinctHostsConstraint(constrai
 }
 
 func (iter *ProposedAllocConstraintIterator) Next() *structs.Node {
+	fmt.Printf("ProposedAllocConstraintIterator.Next(): %v\n")
 	for {
 		// Get the next option from the source
 		option := iter.source.Next()
 
+		fmt.Printf("ProposedAllocConstraintIterator. option: %v\n", option)
 		// Hot-path if the option is nil or there are no distinct_hosts constraints.
 		if option == nil || !(iter.jobDistinctHosts || iter.tgDistinctHosts) {
 			return option
 		}
 
 		if !iter.satisfiesDistinctHosts(option) {
+			fmt.Printf("<----ProposedAllocConstraintIterator not satisfyDistinctHost\n")
 			iter.ctx.Metrics().FilterNode(option, structs.ConstraintDistinctHosts)
 			continue
 		}
@@ -230,6 +238,7 @@ func (iter *ProposedAllocConstraintIterator) satisfiesDistinctHosts(option *stru
 		jobCollision := alloc.JobID == iter.job.ID
 		taskCollision := alloc.TaskGroup == iter.tg.Name
 		if iter.jobDistinctHosts && jobCollision || jobCollision && taskCollision {
+			fmt.Println("<----ProposedAllocConstraintIterator not satisfyDistinctHost", iter.jobDistinctHosts, jobCollision, jobCollision, taskCollision)
 			return false
 		}
 	}
@@ -485,6 +494,7 @@ func (w *FeasibilityWrapper) Reset() {
 // Next returns an eligible node, only running the FeasibilityCheckers as needed
 // based on the sources computed node class.
 func (w *FeasibilityWrapper) Next() *structs.Node {
+	fmt.Printf("FeasibilityWrapper.Next(): %v\n")
 	evalElig := w.ctx.Eligibility()
 	metrics := w.ctx.Metrics()
 
